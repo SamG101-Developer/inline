@@ -3,10 +3,31 @@ import copy
 import importlib.abc
 import importlib.machinery
 import importlib.util
-import os.path
 import sys
 import types
 from typing import Dict, Optional, Sequence
+
+
+class DevirtualizeMethodCallsTransformer(ast.NodeTransformer):
+    _cls_name: str
+
+    def __init__(self, cls_name: str) -> None:
+        self._cls_name = cls_name
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        self.generic_visit(node)
+
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == "self":
+            method_name = node.func.attr
+            new_func = ast.Attribute(
+                value=ast.Name(id=self._cls_name, ctx=ast.Load()),
+                attr=method_name,
+                ctx=ast.Load())
+            new_args = [ast.Name(id="self", ctx=ast.Load())] + node.args
+            new_call = ast.Call(func=new_func, args=new_args, keywords=node.keywords)
+            new_call = ast.copy_location(new_call, node)
+            return new_call
+        return node
 
 
 class InlineTransformer(ast.NodeTransformer):
@@ -18,40 +39,51 @@ class InlineTransformer(ast.NodeTransformer):
     def visit_Expr(self, node: ast.Expr) -> ast.AST:
         self.generic_visit(node)
 
-        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id in self._inline_funcs:
-            func_def = self._inline_funcs[node.value.func.id]
-            param_map = {param.arg: arg for param, arg in zip(func_def.args.args, node.value.args)}
-            new_body = []
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+            func_name = self._get_func_name(node.value)
+            if func_name in self._inline_funcs:
+                func_def = self._inline_funcs[func_name]
+                param_map = {param.arg: arg for param, arg in zip(func_def.args.args, node.value.args)}
+                new_body = []
 
-            for stmt in func_def.body:
-                inline_stmt = self._replace(copy.deepcopy(stmt), param_map)
-                inline_stmt = ast.copy_location(inline_stmt, stmt)
-                new_body.append(inline_stmt)
+                for stmt in func_def.body:
+                    inline_stmt = self._replace(copy.deepcopy(stmt), param_map)
+                    inline_stmt = ast.copy_location(inline_stmt, stmt)
+                    new_body.append(inline_stmt)
 
-            return new_body
+                return new_body
         return node
 
     def visit_Assign(self, node: ast.Assign) -> ast.AST:
         # Special version where the return statement's value from the target function is used as the assignment target.
         self.generic_visit(node)
 
-        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id in self._inline_funcs:
-            func_def = self._inline_funcs[node.value.func.id]
-            param_map = {param.arg: arg for param, arg in zip(func_def.args.args, node.value.args)}
-            new_body = []
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name | ast.Attribute):
+            func_name = self._get_func_name(node.value)
+            if func_name in self._inline_funcs:
+                func_def = self._inline_funcs[func_name]
+                param_map = {param.arg: arg for param, arg in zip(func_def.args.args, node.value.args)}
+                new_body = []
 
-            for stmt in func_def.body:
-                inline_stmt = self._replace(copy.deepcopy(stmt), param_map)
-                inline_stmt = ast.copy_location(inline_stmt, stmt)
-                new_body.append(inline_stmt)
+                for stmt in func_def.body:
+                    inline_stmt = self._replace(copy.deepcopy(stmt), param_map)
+                    inline_stmt = ast.copy_location(inline_stmt, stmt)
+                    new_body.append(inline_stmt)
 
-            if isinstance(ret_stmt := new_body[-1], ast.Return):
-                assign_stmt = ast.Assign(targets=node.targets, value=ret_stmt.value)
-                assign_stmt = ast.copy_location(assign_stmt, func_def.body[-1])
-                new_body[-1] = assign_stmt
+                if isinstance(ret_stmt := new_body[-1], ast.Return):
+                    assign_stmt = ast.Assign(targets=node.targets, value=ret_stmt.value)
+                    assign_stmt = ast.copy_location(assign_stmt, func_def.body[-1])
+                    new_body[-1] = assign_stmt
 
-            return new_body
+                return new_body
         return node
+
+    def _get_func_name(self, call_node: ast.Call) -> Optional[str]:
+        if isinstance(call_node.func, ast.Name):
+            return call_node.func.id
+        elif isinstance(call_node.func, ast.Attribute) and isinstance(call_node.func.value, ast.Name):
+            return f"{call_node.func.value.id}.{call_node.func.attr}"
+        return None
 
     def _replace(self, node: ast.AST, param_map: Dict[str, ast.expr]) -> ast.AST:
         if isinstance(node, ast.Name) and node.id in param_map:
@@ -87,10 +119,25 @@ class InlineLoader(importlib.abc.Loader):
 
         inline_funcs = {}
         for node in tree.body:
+            # Free functions
             if isinstance(node, ast.FunctionDef):
                 for decorator in node.decorator_list:
                     if isinstance(decorator, ast.Name) and decorator.id == "inline":
+                        print("Registering inline function:", node.name)
                         inline_funcs[node.name] = node
+
+            # Class methods
+            elif isinstance(node, ast.ClassDef) and "inline_cls" in [d.id for d in node.decorator_list]:
+                cls_name = node.name
+                devirt = DevirtualizeMethodCallsTransformer(cls_name)
+                node.body = [devirt.visit(item) for item in node.body]
+
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef):
+                        for decorator in item.decorator_list:
+                            if isinstance(decorator, ast.Name) and decorator.id == "inline":
+                                print("Registering inline method:", f"{node.name}.{item.name}")
+                                inline_funcs[f"{node.name}.{item.name}"] = item
 
         if inline_funcs:
             transformer = InlineTransformer(inline_funcs)
