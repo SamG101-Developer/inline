@@ -3,6 +3,7 @@ import copy
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import os.path
 import sys
 import types
 from typing import Dict, Optional, Sequence
@@ -103,11 +104,20 @@ class InlineLoader(importlib.abc.Loader):
 
 class InlineFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname: str, path: Sequence[str], target: Optional[types.ModuleType] = ..., /) -> Optional[importlib.machinery.ModuleSpec]:
-        spec = importlib.machinery.PathFinder.find_spec(fullname)
-        if spec and spec.origin and spec.origin != "built-in" and spec.origin.endswith(".py"):
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+
+        # Non-spec modules or non-python files are skipped.
+        if not spec or not spec.origin or not spec.origin.endswith(".py"):
+            return None
+
+        # Built in libraries are skipped.
+        elif spec.origin.startswith(sys.base_prefix):
+            return None
+
+        # Otherwise, load the module with the InlineLoader.
+        else:
             spec.loader = InlineLoader(fullname, spec.origin)
             return spec
-        return None
 
 
 sys.meta_path.insert(0, InlineFinder())
