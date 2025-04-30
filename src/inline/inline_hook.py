@@ -89,7 +89,6 @@ class InlineLoader(importlib.abc.Loader):
             if isinstance(node, ast.FunctionDef):
                 for decorator in node.decorator_list:
                     if isinstance(decorator, ast.Name) and decorator.id == "inline":
-                        print("\tInlining function:", node.name)
                         inline_funcs[node.name] = node
 
         if inline_funcs:
@@ -98,7 +97,6 @@ class InlineLoader(importlib.abc.Loader):
             ast.fix_missing_locations(tree)
 
         tree = ast.fix_missing_locations(tree)
-        print(ast.unparse(tree))
         code = compile(tree, filename=self._path, mode="exec")
         exec(code, module.__dict__)
 
@@ -107,7 +105,6 @@ class InlineFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname: str, path: Sequence[str], target: Optional[types.ModuleType] = ..., /) -> Optional[importlib.machinery.ModuleSpec]:
         spec = importlib.machinery.PathFinder.find_spec(fullname)
         if spec and spec.origin and spec.origin.endswith(".py"):
-            print("Loading inline module:", fullname)
             spec.loader = InlineLoader(fullname, spec.origin)
             return spec
         return None
