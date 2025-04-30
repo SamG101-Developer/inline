@@ -166,7 +166,6 @@ class InlineLoader(importlib.abc.Loader):
             ast.fix_missing_locations(tree)
 
         tree = ast.fix_missing_locations(tree)
-        print(ast.unparse(tree))
         code = compile(tree, filename=self._path, mode="exec")
         exec(code, module.__dict__)
 
