@@ -1,0 +1,10 @@
+[project]
+name = "inline"
+version = "1.0.0"
+dynamic = ["dependencies"]
+
+[tools.setuptools.dynamic]
+dependencies = {file = "requirements.txt"}
+
+[options]
+packages = ["inline"]
