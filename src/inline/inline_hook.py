@@ -127,7 +127,7 @@ class InlineLoader(importlib.abc.Loader):
                         inline_funcs[node.name] = node
 
             # Class methods
-            elif isinstance(node, ast.ClassDef) and "inline_cls" in [d.id for d in node.decorator_list]:
+            elif isinstance(node, ast.ClassDef) and "inline_cls" in [d.id for d in node.decorator_list if isinstance(d, ast.Name)]:
                 cls_name = node.name
                 devirt = DevirtualizeMethodCallsTransformer(cls_name)
                 node.body = [devirt.visit(item) for item in node.body]
