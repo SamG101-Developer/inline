@@ -104,7 +104,7 @@ class InlineLoader(importlib.abc.Loader):
 class InlineFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname: str, path: Sequence[str], target: Optional[types.ModuleType] = ..., /) -> Optional[importlib.machinery.ModuleSpec]:
         spec = importlib.machinery.PathFinder.find_spec(fullname)
-        if spec and spec.origin and spec.origin.endswith(".py"):
+        if spec and spec.origin and spec.origin != "built-in" and spec.origin.endswith(".py"):
             spec.loader = InlineLoader(fullname, spec.origin)
             return spec
         return None
