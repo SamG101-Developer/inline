@@ -1,6 +1,6 @@
 [project]
 name = "inline"
-version = "1.1.1"
+version = "1.2.0"
 dynamic = ["dependencies"]
 
 [tools.setuptools.dynamic]

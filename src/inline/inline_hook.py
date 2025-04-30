@@ -55,7 +55,7 @@ class InlineTransformer(ast.NodeTransformer):
         return node
 
     def visit_Assign(self, node: ast.Assign) -> ast.AST:
-        # Special version where the return statement's value from the target function is used as the assignment target.
+        # A special version where the return statement's value from the target function is used as the assignment target.
         self.generic_visit(node)
 
         if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name | ast.Attribute):
@@ -75,6 +75,27 @@ class InlineTransformer(ast.NodeTransformer):
                     assign_stmt = ast.copy_location(assign_stmt, func_def.body[-1])
                     new_body[-1] = assign_stmt
 
+                return new_body
+        return node
+
+    def visit_Return(self, node: ast.Return) -> ast.AST:
+        # A special version where the return statement's value from the target function is used as the return value.
+        self.generic_visit(node)
+
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name | ast.Attribute):
+            func_name = self._get_func_name(node.value)
+            if func_name in self._inline_funcs:
+                func_def = self._inline_funcs[func_name]
+                param_map = {param.arg: arg for param, arg in zip(func_def.args.args, node.value.args)}
+                new_body = []
+
+                for stmt in func_def.body:
+                    inline_stmt = self._replace(copy.deepcopy(stmt), param_map)
+                    inline_stmt = ast.copy_location(inline_stmt, stmt)
+                    new_body.append(inline_stmt)
+
+                if isinstance(ret_stmt := new_body[-1], ast.Return):
+                    return ret_stmt
                 return new_body
         return node
 

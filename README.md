@@ -26,10 +26,10 @@ perform all the inlining.
 
 ## AST replacement
 
-Two nodes are checked: `Expr` nodes, and `Assign` nodes. This is because for multi-line functions, analysing the `Call`
-node does not allow for multiple statements to be returned in place. Instead, the `Expr` node is checked whether is
-internally contains a `Call` node. The `Assign` node is checked so that if the inlined function returns a value, it can
-be mapped into the assignment value. This is shows in the example.
+Three nodes are checked:
+- `Expr`: handles inner `Call`
+- `Assign`: handles rhs `Call`, place return value into target
+- `Return`: handles value `Call`, returns returned value
 
 ## Results
 
@@ -41,3 +41,4 @@ Disassembly of the code will show that the function has been inlined into the ca
   imported from another module, it will not be replaced.
 - Inlining nested functions are not supported, because recursive checks are not done yet.
 - Inlining nested classes' methods are not supported, because recursive checks are not done yet.
+- Other usages of the function (in conditions, walrus operators, etc) are not supported yet.
